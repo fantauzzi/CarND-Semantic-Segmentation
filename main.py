@@ -4,10 +4,11 @@ import helper
 import warnings
 from distutils.version import LooseVersion
 import project_tests as tests
-
+import numpy as np
 
 # Check TensorFlow Version
-assert LooseVersion(tf.__version__) >= LooseVersion('1.0'), 'Please use TensorFlow version 1.0 or newer.  You are using {}'.format(tf.__version__)
+assert LooseVersion(tf.__version__) >= LooseVersion(
+    '1.0'), 'Please use TensorFlow version 1.0 or newer.  You are using {}'.format(tf.__version__)
 print('TensorFlow Version: {}'.format(tf.__version__))
 
 # Check for a GPU
@@ -17,6 +18,68 @@ else:
     print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
 
 
+def get_bilinear_filter(filter_shape, upscale_factor):
+    # From http://cv-tricks.com/image-segmentation/transpose-convolution-in-tensorflow/
+    ##filter_shape is [width, height, num_in_channels, num_out_channels]
+    kernel_size = filter_shape[1]
+    ### Centre location of the filter for which value is calculated
+    if kernel_size % 2 == 1:
+        centre_location = upscale_factor - 1
+    else:
+        centre_location = upscale_factor - 0.5
+
+    bilinear = np.zeros([filter_shape[0], filter_shape[1]])
+    for x in range(filter_shape[0]):
+        for y in range(filter_shape[1]):
+            ##Interpolation Calculation
+            value = (1 - abs((x - centre_location) / upscale_factor)) * (
+            1 - abs((y - centre_location) / upscale_factor))
+            bilinear[x, y] = value
+    weights = np.zeros(filter_shape)
+    for i in range(filter_shape[2]):
+        weights[:, :, i, i] = bilinear
+    init = tf.constant_initializer(value=weights,
+                                   dtype=tf.float32)
+
+    bilinear_weights = tf.get_variable(name="decon_bilinear_filter", initializer=init,
+                                       shape=weights.shape)
+    return bilinear_weights
+
+
+def upsample_layer(bottom,
+                   n_channels, name, upscale_factor):
+    # From http://cv-tricks.com/image-segmentation/transpose-convolution-in-tensorflow/
+    kernel_size = 2 * upscale_factor - upscale_factor % 2
+    stride = upscale_factor
+    strides = [1, stride, stride, 1]
+    with tf.variable_scope(name):
+        # Shape of the bottom tensor
+        in_shape = tf.shape(bottom)
+
+        h = ((in_shape[1] - 1) * stride) + 1
+        w = ((in_shape[2] - 1) * stride) + 1
+        new_shape = [in_shape[0], h, w, n_channels]
+        output_shape = tf.stack(new_shape)
+
+        filter_shape = [kernel_size, kernel_size, n_channels, n_channels]
+
+        weights = get_bilinear_filter(filter_shape, upscale_factor)
+        deconv = tf.nn.conv2d_transpose(bottom, weights, output_shape,
+                                        strides=strides, padding='SAME')
+
+    return deconv
+
+
+def custom_init(shape, dtype=tf.float32, seed=42):
+    return tf.random_normal(shape, dtype=dtype, seed=seed)
+
+
+def conv_1x1(x, num_outputs):
+    kernel_size = 1
+    stride = 1
+    return tf.layers.conv2d(x, num_outputs, kernel_size, stride, weights_initializer=custom_init)
+
+
 def load_vgg(sess, vgg_path):
     """
     Load Pretrained VGG Model into TensorFlow.
@@ -24,16 +87,29 @@ def load_vgg(sess, vgg_path):
     :param vgg_path: Path to vgg folder, containing "variables/" and "saved_model.pb"
     :return: Tuple of Tensors from VGG model (image_input, keep_prob, layer3_out, layer4_out, layer7_out)
     """
-    # TODO: Implement function
+
+    helper.maybe_download_pretrained_vgg('data')
+    # DONE: Implement function
     #   Use tf.saved_model.loader.load to load the model and weights
+    tf.saved_model.loader.load(sess, ['vgg16'], vgg_path)
     vgg_tag = 'vgg16'
     vgg_input_tensor_name = 'image_input:0'
     vgg_keep_prob_tensor_name = 'keep_prob:0'
     vgg_layer3_out_tensor_name = 'layer3_out:0'
     vgg_layer4_out_tensor_name = 'layer4_out:0'
     vgg_layer7_out_tensor_name = 'layer7_out:0'
-    
-    return None, None, None, None, None
+
+    default_graph=tf.get_default_graph()
+
+    vgg_input_tensor = default_graph.get_tensor_by_name(vgg_input_tensor_name)
+    vgg_keep_prob_tensor = default_graph.get_tensor_by_name(vgg_keep_prob_tensor_name)
+    vgg_layer3_out_tensor = default_graph.get_tensor_by_name(vgg_layer3_out_tensor_name)
+    vgg_layer4_out_tensor = default_graph.get_tensor_by_name(vgg_layer4_out_tensor_name)
+    vgg_layer7_out_tensor = default_graph.get_tensor_by_name(vgg_layer7_out_tensor_name)
+
+    return vgg_input_tensor, vgg_keep_prob_tensor, vgg_layer3_out_tensor, vgg_layer4_out_tensor, vgg_layer7_out_tensor
+
+
 tests.test_load_vgg(load_vgg, tf)
 
 
@@ -48,6 +124,8 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     """
     # TODO: Implement function
     return None
+
+
 tests.test_layers(layers)
 
 
@@ -62,6 +140,8 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     """
     # TODO: Implement function
     return None, None, None
+
+
 tests.test_optimize(optimize)
 
 
@@ -82,6 +162,8 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     """
     # TODO: Implement function
     pass
+
+
 tests.test_train_nn(train_nn)
 
 
