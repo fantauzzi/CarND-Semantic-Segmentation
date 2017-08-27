@@ -33,17 +33,17 @@ def get_bilinear_filter(filter_shape, upscale_factor, name):
         for y in range(filter_shape[1]):
             ##Interpolation Calculation
             value = (1 - abs((x - centre_location) / upscale_factor)) * (
-            1 - abs((y - centre_location) / upscale_factor))
+                1 - abs((y - centre_location) / upscale_factor))
             bilinear[x, y] = value
     weights = np.zeros(filter_shape)
     for i in range(filter_shape[2]):
         weights[:, :, i, i] = bilinear
     init = tf.constant_initializer(value=weights,
-                                   dtype=tf.float32)
+                                   dtype=tf.float32)  # TODO: check that weights initialised this way are actually trainable
 
-    bilinear_weights = tf.get_variable(name=name+"-decon_bilinear_filter", initializer=init,
-                                       shape=weights.shape)
-    return bilinear_weights
+    '''bilinear_weights = tf.get_variable(name=name + "-decon_bilinear_filter", initializer=init,
+                                       shape=weights.shape)'''
+    return init
 
 
 def upsample_layer(bottom,
@@ -63,11 +63,12 @@ def upsample_layer(bottom,
 
         filter_shape = [kernel_size, kernel_size, n_channels, n_channels]
 
-        # weights = get_bilinear_filter(filter_shape, upscale_factor, name)
+        weights = get_bilinear_filter(filter_shape, upscale_factor, name)
         """deconv = tf.nn.conv2d_transpose(bottom, weights, output_shape,
                                         strides=strides, padding='SAME')"""
-        weights = tf.truncated_normal_initializer(stddev = 0.01)
-        deconv = tf.layers.conv2d_transpose(bottom, n_channels, kernel_size, upscale_factor, 'SAME', kernel_initializer=weights)
+        # weights = tf.truncated_normal_initializer(stddev=0.01)
+        deconv = tf.layers.conv2d_transpose(bottom, n_channels, kernel_size, upscale_factor, 'SAME',
+                                            kernel_initializer=weights)
 
     return deconv
 
@@ -101,7 +102,7 @@ def load_vgg(sess, vgg_path):
     vgg_layer4_out_tensor_name = 'layer4_out:0'
     vgg_layer7_out_tensor_name = 'layer7_out:0'
 
-    default_graph=tf.get_default_graph()
+    default_graph = tf.get_default_graph()
 
     vgg_input_tensor = default_graph.get_tensor_by_name(vgg_input_tensor_name)
     vgg_keep_prob_tensor = default_graph.get_tensor_by_name(vgg_keep_prob_tensor_name)
@@ -132,8 +133,7 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     layer4_7_upsampled = upsample_layer(layer4_7_fused, num_classes, "layer4_7_upsampled", 2)
     layer3_1x1 = conv_1x1(vgg_layer3_out, num_classes)
     layer3_4_7_fused = tf.add(layer3_1x1, layer4_7_upsampled)
-    layer3_4_7_upsampled= upsample_layer(layer3_4_7_fused, num_classes, "layer3_4_7_upsampled", 8)
-
+    layer3_4_7_upsampled = upsample_layer(layer3_4_7_fused, num_classes, "layer3_4_7_upsampled", 8)
 
     return layer3_4_7_upsampled
 
@@ -179,13 +179,15 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     :param learning_rate: TF Placeholder for learning rate
     """
     # DONE: Implement function
-    i=1;
+    i = 1;
     for epoch in range(epochs):
         for image, ground_truth in get_batches_fn(batch_size):
             _, loss = sess.run([train_op, cross_entropy_loss],
-                               feed_dict={input_image: image, correct_label: ground_truth, keep_prob: .8, learning_rate: .0001})
+                               feed_dict={input_image: image, correct_label: ground_truth, keep_prob: .8,
+                                          learning_rate: .0001})  # TODO: Tune!
             print('Epoch: {} of {}; Iteration: {}; loss: {}'.format(epoch, epochs, i, loss))
-            i+=1
+            i += 1
+
 
 tests.test_train_nn(train_nn)
 
@@ -194,7 +196,7 @@ def run():
     num_classes = 2
     image_shape = (160, 576)
     epochs = 5
-    batch_size=1
+    batch_size = 1  # TODO: Tune!
     data_dir = './data'
     runs_dir = './runs'
     tests.test_for_kitti_dataset(data_dir)
@@ -213,20 +215,21 @@ def run():
         get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'), image_shape)
 
         # OPTIONAL: Augment Images for better results
+        # TODO: image pre-processing
         #  https://datascience.stackexchange.com/questions/5224/how-to-prepare-augment-images-for-neural-network
 
         # DONE: Build NN using load_vgg, layers, and optimize function
-        vgg_input_tensor, vgg_keep_prob_tensor, vgg_layer3_out_tensor, vgg_layer4_out_tensor, vgg_layer7_out_tensor = load_vgg(sess=sess, vgg_path=vgg_path)
+        vgg_input_tensor, vgg_keep_prob_tensor, vgg_layer3_out_tensor, vgg_layer4_out_tensor, vgg_layer7_out_tensor = load_vgg(
+            sess=sess, vgg_path=vgg_path)
 
-        output_layer=layers(vgg_layer3_out=vgg_layer3_out_tensor,
-                      vgg_layer4_out=vgg_layer4_out_tensor,
-                      vgg_layer7_out=vgg_layer7_out_tensor,
-                      num_classes=num_classes)
+        output_layer = layers(vgg_layer3_out=vgg_layer3_out_tensor,
+                              vgg_layer4_out=vgg_layer4_out_tensor,
+                              vgg_layer7_out=vgg_layer7_out_tensor,
+                              num_classes=num_classes)
 
-        learning_rate=tf.placeholder(dtype=tf.float32)
-        correct_label=tf.placeholder(dtype=tf.float32, shape=(None, None, None, num_classes))
+        learning_rate = tf.placeholder(dtype=tf.float32)
+        correct_label = tf.placeholder(dtype=tf.float32, shape=(None, None, None, num_classes))
         logits, train_op, loss = optimize(output_layer, correct_label, learning_rate, num_classes)
-
 
         # DONE: Train NN using the train_nn function
         sess.run(tf.global_variables_initializer())
@@ -242,7 +245,8 @@ def run():
                  learning_rate=learning_rate)
 
         # DONE: Save inference data using helper.save_inference_samples
-        helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, vgg_keep_prob_tensor, vgg_input_tensor)
+        helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, vgg_keep_prob_tensor,
+                                      vgg_input_tensor)
 
         # OPTIONAL: Apply the trained model to a video
 
