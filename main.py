@@ -64,8 +64,9 @@ def upsample_layer(bottom,
         filter_shape = [kernel_size, kernel_size, n_channels, n_channels]
 
         weights = get_bilinear_filter(filter_shape, upscale_factor)
-        deconv = tf.nn.conv2d_transpose(bottom, weights, output_shape,
-                                        strides=strides, padding='SAME')
+        """deconv = tf.nn.conv2d_transpose(bottom, weights, output_shape,
+                                        strides=strides, padding='SAME')"""
+        deconv = tf.layers.conv2d_transpose(bottom, n_channels, kernel_size, upscale_factor, 'SAME', kernel_initializer=weights)
 
     return deconv
 
@@ -77,7 +78,7 @@ def custom_init(shape, dtype=tf.float32, seed=42):
 def conv_1x1(x, num_outputs):
     kernel_size = 1
     stride = 1
-    return tf.layers.conv2d(x, num_outputs, kernel_size, stride, weights_initializer=custom_init)
+    return tf.layers.conv2d(x, num_outputs, kernel_size, stride)
 
 
 def load_vgg(sess, vgg_path):
@@ -91,8 +92,8 @@ def load_vgg(sess, vgg_path):
     helper.maybe_download_pretrained_vgg('data')
     # DONE: Implement function
     #   Use tf.saved_model.loader.load to load the model and weights
-    tf.saved_model.loader.load(sess, ['vgg16'], vgg_path)
     vgg_tag = 'vgg16'
+    tf.saved_model.loader.load(sess, ['vgg16'], vgg_path)
     vgg_input_tensor_name = 'image_input:0'
     vgg_keep_prob_tensor_name = 'keep_prob:0'
     vgg_layer3_out_tensor_name = 'layer3_out:0'
@@ -123,7 +124,17 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :return: The Tensor for the last layer of output
     """
     # TODO: Implement function
-    return None
+    layer7_1x1 = conv_1x1(vgg_layer7_out, num_classes)
+    layer7_upsampled = upsample_layer(layer7_1x1, num_classes, "layer7_upsampled", 2)
+    layer4_1x1 = conv_1x1(vgg_layer4_out, num_classes)
+    layer4_7_fused = tf.add(layer4_1x1, layer7_upsampled)
+    layer4_7_upsampled = upsample_layer(layer4_7_fused, num_classes, "layer4_7_upsampled", 2)
+    layer3_1x1 = conv_1x1(vgg_layer3_out, num_classes)
+    layer3_4_7_fused = tf.add(layer3_1x1, layer4_7_upsampled)
+    layer3_4_7_upsampled= upsample_layer(layer3_4_7_fused, num_classes, "layer3_4_7_upsampled", 8)
+
+
+    return layer3_4_7_upsampled
 
 
 tests.test_layers(layers)
