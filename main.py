@@ -1,5 +1,6 @@
 import os.path
 import tensorflow as tf
+from tensorflow.contrib.layers import l2_regularizer
 import helper
 import warnings
 from distutils.version import LooseVersion
@@ -67,8 +68,13 @@ def upsample_layer(bottom,
         """deconv = tf.nn.conv2d_transpose(bottom, weights, output_shape,
                                         strides=strides, padding='SAME')"""
         # weights = tf.truncated_normal_initializer(stddev=0.01)
-        deconv = tf.layers.conv2d_transpose(bottom, n_channels, kernel_size, upscale_factor, 'SAME',
-                                            kernel_initializer=weights)
+        deconv = tf.layers.conv2d_transpose(inputs=bottom,
+                                            filters=n_channels,
+                                            kernel_size=kernel_size,
+                                            strides=upscale_factor,
+                                            padding='same',
+                                            kernel_initializer=weights,
+                                            kernel_regularizer=l2_regularizer(1e-3))
 
     return deconv
 
@@ -78,9 +84,12 @@ def custom_init(shape, dtype=tf.float32, seed=42):
 
 
 def conv_1x1(x, num_outputs):
-    kernel_size = 1
-    stride = 1
-    return tf.layers.conv2d(x, num_outputs, kernel_size, stride)
+    return tf.layers.conv2d(inputs=x,
+                            filters=num_outputs,
+                            kernel_size=1,
+                            strides=1,
+                            padding='same',
+                            kernel_regularizer=l2_regularizer(1e-3))
 
 
 def load_vgg(sess, vgg_path):
@@ -183,9 +192,9 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     for epoch in range(epochs):
         for image, ground_truth in get_batches_fn(batch_size):
             _, loss = sess.run([train_op, cross_entropy_loss],
-                               feed_dict={input_image: image, correct_label: ground_truth, keep_prob: .8,
-                                          learning_rate: .0001})  # TODO: Tune!
-            print('Epoch: {} of {}; Iteration: {}; loss: {}'.format(epoch, epochs, i, loss))
+                               feed_dict={input_image: image, correct_label: ground_truth, keep_prob: 0.8,
+                                          learning_rate: .00001})  # TODO: Tune!
+            print('Epoch: {} of {}; Iteration: {}; loss: {}'.format(epoch+1, epochs, i, loss))
             i += 1
 
 
@@ -195,8 +204,8 @@ tests.test_train_nn(train_nn)
 def run():
     num_classes = 2
     image_shape = (160, 576)
-    epochs = 5
-    batch_size = 1  # TODO: Tune!
+    epochs = 50
+    batch_size = 8  # TODO: Tune!
     data_dir = './data'
     runs_dir = './runs'
     tests.test_for_kitti_dataset(data_dir)
@@ -208,6 +217,9 @@ def run():
     # You'll need a GPU with at least 10 teraFLOPS to train on.
     #  https://www.cityscapes-dataset.com/
 
+    # config = tf.ConfigProto()
+    # config.gpu_options.allow_growth = True
+    # with tf.Session(config=config) as sess:
     with tf.Session() as sess:
         # Path to vgg model
         vgg_path = os.path.join(data_dir, 'vgg')
