@@ -4,8 +4,11 @@ from tensorflow.contrib.layers import l2_regularizer
 import helper
 import warnings
 from distutils.version import LooseVersion
-import project_tests as tests
+# import project_tests as tests
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+
 
 # Check TensorFlow Version
 assert LooseVersion(tf.__version__) >= LooseVersion(
@@ -64,10 +67,10 @@ def upsample_layer(bottom,
 
         filter_shape = [kernel_size, kernel_size, n_channels, n_channels]
 
-        weights = get_bilinear_filter(filter_shape, upscale_factor, name)
+        # weights = get_bilinear_filter(filter_shape, upscale_factor, name)
         """deconv = tf.nn.conv2d_transpose(bottom, weights, output_shape,
                                         strides=strides, padding='SAME')"""
-        # weights = tf.truncated_normal_initializer(stddev=0.01)
+        weights = tf.truncated_normal_initializer(stddev=0.01)
         deconv = tf.layers.conv2d_transpose(inputs=bottom,
                                             filters=n_channels,
                                             kernel_size=kernel_size,
@@ -88,7 +91,7 @@ def conv_1x1(x, num_outputs):
                             filters=num_outputs,
                             kernel_size=1,
                             strides=1,
-                            padding='same',
+                            padding='same',  # DONE try activation=tf.nn.relu
                             kernel_regularizer=l2_regularizer(1e-3))
 
 
@@ -122,7 +125,7 @@ def load_vgg(sess, vgg_path):
     return vgg_input_tensor, vgg_keep_prob_tensor, vgg_layer3_out_tensor, vgg_layer4_out_tensor, vgg_layer7_out_tensor
 
 
-tests.test_load_vgg(load_vgg, tf)
+# tests.test_load_vgg(load_vgg, tf)
 
 
 def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
@@ -147,7 +150,7 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     return layer3_4_7_upsampled
 
 
-tests.test_layers(layers)
+# tests.test_layers(layers)
 
 
 def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
@@ -169,7 +172,7 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     return logits, train_op, loss
 
 
-tests.test_optimize(optimize)
+# tests.test_optimize(optimize)
 
 
 def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, input_image,
@@ -189,26 +192,30 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     """
     # DONE: Implement function
     i = 1;
+    loss_log = []
     for epoch in range(epochs):
         for image, ground_truth in get_batches_fn(batch_size):
             _, loss = sess.run([train_op, cross_entropy_loss],
                                feed_dict={input_image: image, correct_label: ground_truth, keep_prob: 0.8,
-                                          learning_rate: .00001})  # TODO: Tune!
-            print('Epoch: {} of {}; Iteration: {}; loss: {}'.format(epoch+1, epochs, i, loss))
+                                          learning_rate: .0005})  # TODO: Tune!
+            print('Epoch: {} of {}; Iteration: {}; loss: {}'.format(epoch + 1, epochs, i, loss))
             i += 1
+        loss_log.append(loss)
+
+    return loss_log
 
 
-tests.test_train_nn(train_nn)
+# tests.test_train_nn(train_nn)
 
 
 def run():
     num_classes = 2
     image_shape = (160, 576)
-    epochs = 50
-    batch_size = 8  # TODO: Tune!
+    epochs = 12
+    batch_size = 2  # TODO: Tune!
     data_dir = './data'
     runs_dir = './runs'
-    tests.test_for_kitti_dataset(data_dir)
+    # tests.test_for_kitti_dataset(data_dir)
 
     # Download pretrained vgg model
     helper.maybe_download_pretrained_vgg(data_dir)
@@ -245,20 +252,34 @@ def run():
 
         # DONE: Train NN using the train_nn function
         sess.run(tf.global_variables_initializer())
-        train_nn(sess=sess,
-                 epochs=epochs,
-                 batch_size=batch_size,
-                 get_batches_fn=get_batches_fn,
-                 train_op=train_op,
-                 cross_entropy_loss=loss,
-                 input_image=vgg_input_tensor,
-                 correct_label=correct_label,
-                 keep_prob=vgg_keep_prob_tensor,
-                 learning_rate=learning_rate)
+        loss_log = train_nn(sess=sess,
+                            epochs=epochs,
+                            batch_size=batch_size,
+                            get_batches_fn=get_batches_fn,
+                            train_op=train_op,
+                            cross_entropy_loss=loss,
+                            input_image=vgg_input_tensor,
+                            correct_label=correct_label,
+                            keep_prob=vgg_keep_prob_tensor,
+                            learning_rate=learning_rate)
 
         # DONE: Save inference data using helper.save_inference_samples
+        # TODO add progress bar
         helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, vgg_keep_prob_tensor,
                                       vgg_input_tensor)
+
+        # Chart validation and test loss per epoch
+        _, axes = plt.subplots()
+        plt.plot(loss_log)
+        plt.title('Cross-entropy loss')
+        plt.ylabel('Loss')
+        plt.xlabel('Epoch')
+        # plt.legend(['Training set', 'Validation set'], loc='upper right')
+        axes.set_ylim([0, 5])
+        plt.grid()
+        axes.xaxis.set_major_locator(ticker.MultipleLocator(1))
+        plt.show()
+
 
         # OPTIONAL: Apply the trained model to a video
 
