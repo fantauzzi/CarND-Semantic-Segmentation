@@ -10,7 +10,8 @@ import tensorflow as tf
 from glob import glob
 from urllib.request import urlretrieve
 from tqdm import tqdm
-
+from math import ceil
+from tqdm import tqdm
 
 class DLProgress(tqdm):
     last_block = 0
@@ -58,6 +59,19 @@ def maybe_download_pretrained_vgg(data_dir):
         os.remove(os.path.join(vgg_path, vgg_filename))
 
 
+def count_batches(data_folder, batch_size):
+    """
+    Returns the number of batches in one epoch based on the given dataset and batch size, keeping
+    data augmentation into consideration
+    :param data_folder: 
+    :param batch_size: 
+    :return: the computed number of batches in one epoch
+    """
+    image_paths = glob(os.path.join(data_folder, 'image_2', '*.png'))
+    n_batches = ceil(len(image_paths)*2 /batch_size)
+    return n_batches
+
+
 def gen_batch_function(data_folder, image_shape):
     """
     Generate function to create batches of training data
@@ -65,9 +79,10 @@ def gen_batch_function(data_folder, image_shape):
     :param image_shape: Tuple - Shape of image
     :return:
     """
+
     def get_batches_fn(batch_size):
         """
-        Create batches of training data
+        Create batches of training data, augmenting data by flipping every image left-to-right.
         :param batch_size: Batch Size
         :return: Batches of training data
         """
@@ -77,25 +92,33 @@ def gen_batch_function(data_folder, image_shape):
             for path in glob(os.path.join(data_folder, 'gt_image_2', '*_road_*.png'))}
         background_color = np.array([255, 0, 0])
 
-        random.shuffle(image_paths)
-        for batch_i in range(0, len(image_paths), batch_size):
+        ''' The list contains pairs (path, flip) where `path` is the path to the image file and `flip` is
+        True or False, indicating whether the image should be flipped (for data augmentation). Every image is
+        listed twice, once with `flip` set to True, and once set to False'''
+        image_paths_and_flip = [(path, False) for path in image_paths]
+        image_paths_and_flip.extend([(path, True) for path in image_paths])
+        random.shuffle(image_paths_and_flip)
+        for batch_i in range(0, len(image_paths_and_flip), batch_size):
             images = []
             gt_images = []
-            for image_file in image_paths[batch_i:batch_i+batch_size]:
+            for image_file_and_flip in image_paths_and_flip[batch_i:batch_i + batch_size]:
+                image_file, flip = image_file_and_flip
                 gt_image_file = label_paths[os.path.basename(image_file)]
 
                 image = scipy.misc.imresize(scipy.misc.imread(image_file), image_shape)
                 gt_image = scipy.misc.imresize(scipy.misc.imread(gt_image_file), image_shape)
-
+                if flip:
+                    image = image[::, ::-1, ::]
+                    gt_image = gt_image[::, ::-1, ::]
                 gt_bg = np.all(gt_image == background_color, axis=2)
                 gt_bg = gt_bg.reshape(*gt_bg.shape, 1)
                 gt_image = np.concatenate((gt_bg, np.invert(gt_bg)), axis=2)
 
-                # image=(image-128)/128.0  # Normalizing image, evey pixel value between -1 and 1.
                 images.append(image)
                 gt_images.append(gt_image)
 
             yield np.array(images), np.array(gt_images)
+
     return get_batches_fn
 
 
@@ -137,5 +160,7 @@ def save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_p
     print('Training Finished. Saving test images to: {}'.format(output_dir))
     image_outputs = gen_test_output(
         sess, logits, keep_prob, input_image, os.path.join(data_dir, 'data_road/testing'), image_shape)
-    for name, image in image_outputs:
+    for name, image in tqdm(image_outputs, unit=' files'):
         scipy.misc.imsave(os.path.join(output_dir, name), image)
+
+    print()  # Go to new line after last progress report

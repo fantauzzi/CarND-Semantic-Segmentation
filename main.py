@@ -5,10 +5,9 @@ import helper
 import warnings
 from distutils.version import LooseVersion
 # import project_tests as tests
-import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-
+from tqdm import tqdm
 
 # Check TensorFlow Version
 assert LooseVersion(tf.__version__) >= LooseVersion(
@@ -22,54 +21,23 @@ else:
     print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
 
 
-def get_bilinear_filter(filter_shape, upscale_factor, name):
-    # From http://cv-tricks.com/image-segmentation/transpose-convolution-in-tensorflow/
-    ##filter_shape is [width, height, num_in_channels, num_out_channels]
-    kernel_size = filter_shape[1]
-    ### Centre location of the filter for which value is calculated
-    if kernel_size % 2 == 1:
-        centre_location = upscale_factor - 1
-    else:
-        centre_location = upscale_factor - 0.5
-
-    bilinear = np.zeros([filter_shape[0], filter_shape[1]])
-    for x in range(filter_shape[0]):
-        for y in range(filter_shape[1]):
-            ##Interpolation Calculation
-            value = (1 - abs((x - centre_location) / upscale_factor)) * (
-                1 - abs((y - centre_location) / upscale_factor))
-            bilinear[x, y] = value
-    weights = np.zeros(filter_shape)
-    for i in range(filter_shape[2]):
-        weights[:, :, i, i] = bilinear
-    init = tf.constant_initializer(value=weights,
-                                   dtype=tf.float32)  # TODO: check that weights initialised this way are actually trainable
-
-    '''bilinear_weights = tf.get_variable(name=name + "-decon_bilinear_filter", initializer=init,
-                                       shape=weights.shape)'''
-    return init
-
-
 def upsample_layer(bottom,
                    n_channels, name, upscale_factor):
-    # From http://cv-tricks.com/image-segmentation/transpose-convolution-in-tensorflow/
+    # Adapted from http://cv-tricks.com/image-segmentation/transpose-convolution-in-tensorflow/
     kernel_size = 2 * upscale_factor - upscale_factor % 2
     stride = upscale_factor
-    strides = [1, stride, stride, 1]
+    # strides = [1, stride, stride, 1]
     with tf.variable_scope(name):
         # Shape of the bottom tensor
         in_shape = tf.shape(bottom)
 
         h = ((in_shape[1] - 1) * stride) + 1
         w = ((in_shape[2] - 1) * stride) + 1
-        new_shape = [in_shape[0], h, w, n_channels]
-        output_shape = tf.stack(new_shape)
+        # new_shape = [in_shape[0], h, w, n_channels]
+        # output_shape = tf.stack(new_shape)
 
-        filter_shape = [kernel_size, kernel_size, n_channels, n_channels]
+        # filter_shape = [kernel_size, kernel_size, n_channels, n_channels]
 
-        # weights = get_bilinear_filter(filter_shape, upscale_factor, name)
-        """deconv = tf.nn.conv2d_transpose(bottom, weights, output_shape,
-                                        strides=strides, padding='SAME')"""
         weights = tf.truncated_normal_initializer(stddev=0.01)
         deconv = tf.layers.conv2d_transpose(inputs=bottom,
                                             filters=n_channels,
@@ -82,16 +50,12 @@ def upsample_layer(bottom,
     return deconv
 
 
-def custom_init(shape, dtype=tf.float32, seed=42):
-    return tf.random_normal(shape, dtype=dtype, seed=seed)
-
-
 def conv_1x1(x, num_outputs):
     return tf.layers.conv2d(inputs=x,
                             filters=num_outputs,
                             kernel_size=1,
                             strides=1,
-                            padding='same',  # DONE try activation=tf.nn.relu
+                            padding='same',
                             kernel_regularizer=l2_regularizer(1e-3))
 
 
@@ -107,7 +71,7 @@ def load_vgg(sess, vgg_path):
     # DONE: Implement function
     #   Use tf.saved_model.loader.load to load the model and weights
     vgg_tag = 'vgg16'
-    tf.saved_model.loader.load(sess, ['vgg16'], vgg_path)
+    tf.saved_model.loader.load(sess, [vgg_tag], vgg_path)
     vgg_input_tensor_name = 'image_input:0'
     vgg_keep_prob_tensor_name = 'keep_prob:0'
     vgg_layer3_out_tensor_name = 'layer3_out:0'
@@ -176,7 +140,7 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
 
 
 def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, input_image,
-             correct_label, keep_prob, learning_rate):
+             correct_label, keep_prob, learning_rate, batches_count):
     """
     Train neural network and print out the loss during training.
     :param sess: TF Session
@@ -189,18 +153,21 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     :param correct_label: TF Placeholder for label images
     :param keep_prob: TF Placeholder for dropout keep probability
     :param learning_rate: TF Placeholder for learning rate
+    :param batches_count: number of batches in one epoch, used to correctly display progress
     """
     # DONE: Implement function
-    i = 1;
     loss_log = []
     for epoch in range(epochs):
-        for image, ground_truth in get_batches_fn(batch_size):
-            _, loss = sess.run([train_op, cross_entropy_loss],
-                               feed_dict={input_image: image, correct_label: ground_truth, keep_prob: 0.8,
-                                          learning_rate: .0005})  # TODO: Tune!
-            print('Epoch: {} of {}; Iteration: {}; loss: {}'.format(epoch + 1, epochs, i, loss))
-            i += 1
+        with tqdm(total=batches_count, unit=' batches') as progress_indicator:
+            for image, ground_truth in get_batches_fn(batch_size):
+                _, loss = sess.run([train_op, cross_entropy_loss],
+                                   feed_dict={input_image: image, correct_label: ground_truth, keep_prob: 0.8,
+                                              learning_rate: .00005})
+                progress_indicator.set_description('Epoch {:>2}/{} - Loss {:.4f}'.format(epoch + 1, epochs, loss))
+                progress_indicator.update(1)
         loss_log.append(loss)
+
+    print()  # Go to new line after the last progress report
 
     return loss_log
 
@@ -212,30 +179,18 @@ def run():
     num_classes = 2
     image_shape = (160, 576)
     epochs = 12
-    batch_size = 2  # TODO: Tune!
+    batch_size = 2
     data_dir = './data'
     runs_dir = './runs'
-    # tests.test_for_kitti_dataset(data_dir)
 
-    # Download pretrained vgg model
+    # Download pre-trained vgg model
     helper.maybe_download_pretrained_vgg(data_dir)
 
-    # OPTIONAL: Train and Inference on the cityscapes dataset instead of the Kitti dataset.
-    # You'll need a GPU with at least 10 teraFLOPS to train on.
-    #  https://www.cityscapes-dataset.com/
-
-    # config = tf.ConfigProto()
-    # config.gpu_options.allow_growth = True
-    # with tf.Session(config=config) as sess:
     with tf.Session() as sess:
         # Path to vgg model
         vgg_path = os.path.join(data_dir, 'vgg')
         # Create function to get batches
         get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'), image_shape)
-
-        # OPTIONAL: Augment Images for better results
-        # TODO: image pre-processing
-        #  https://datascience.stackexchange.com/questions/5224/how-to-prepare-augment-images-for-neural-network
 
         # DONE: Build NN using load_vgg, layers, and optimize function
         vgg_input_tensor, vgg_keep_prob_tensor, vgg_layer3_out_tensor, vgg_layer4_out_tensor, vgg_layer7_out_tensor = load_vgg(
@@ -252,6 +207,7 @@ def run():
 
         # DONE: Train NN using the train_nn function
         sess.run(tf.global_variables_initializer())
+        n_batches = helper.count_batches(os.path.join(data_dir, 'data_road/training'), batch_size)
         loss_log = train_nn(sess=sess,
                             epochs=epochs,
                             batch_size=batch_size,
@@ -261,27 +217,22 @@ def run():
                             input_image=vgg_input_tensor,
                             correct_label=correct_label,
                             keep_prob=vgg_keep_prob_tensor,
-                            learning_rate=learning_rate)
+                            learning_rate=learning_rate,
+                            batches_count=n_batches)
 
         # DONE: Save inference data using helper.save_inference_samples
-        # TODO add progress bar
         helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, vgg_keep_prob_tensor,
                                       vgg_input_tensor)
 
-        # Chart validation and test loss per epoch
+        # Chart loss per epoch
         _, axes = plt.subplots()
-        plt.plot(loss_log)
+        plt.plot(range(1, len(loss_log) + 1), loss_log)
         plt.title('Cross-entropy loss')
         plt.ylabel('Loss')
         plt.xlabel('Epoch')
-        # plt.legend(['Training set', 'Validation set'], loc='upper right')
-        axes.set_ylim([0, 5])
         plt.grid()
         axes.xaxis.set_major_locator(ticker.MultipleLocator(1))
         plt.show()
-
-
-        # OPTIONAL: Apply the trained model to a video
 
 
 if __name__ == '__main__':
