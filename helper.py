@@ -9,7 +9,6 @@ import time
 import tensorflow as tf
 from glob import glob
 from urllib.request import urlretrieve
-from tqdm import tqdm
 from math import ceil
 from tqdm import tqdm
 

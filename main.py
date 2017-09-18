@@ -8,7 +8,7 @@ from distutils.version import LooseVersion
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from tqdm import tqdm
-import scipy
+
 # Check TensorFlow Version
 assert LooseVersion(tf.__version__) >= LooseVersion(
     '1.0'), 'Please use TensorFlow version 1.0 or newer.  You are using {}'.format(tf.__version__)
@@ -23,9 +23,9 @@ else:
 
 def upsample_layer(bottom,
                    n_channels, name, upscale_factor):
-    # Adapted from http://cv-tricks.com/image-segmentation/transpose-convolution-in-tensorflow/
+    ## Adapted from http://cv-tricks.com/image-segmentation/transpose-convolution-in-tensorflow/
     kernel_size = 2 * upscale_factor - upscale_factor % 2
-    stride = upscale_factor
+    # stride = upscale_factor
     # strides = [1, stride, stride, 1]
     with tf.variable_scope(name):
         # Shape of the bottom tensor
@@ -135,6 +135,7 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
 
     return layer3_4_7_upsampled
 
+
 # tests.test_layers(layers)
 
 
@@ -199,7 +200,7 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
 def run():
     num_classes = 2
     image_shape = (160, 576)
-    epochs = 2
+    epochs = 20
     batch_size = 2
     data_dir = './data'
     runs_dir = './runs'
@@ -211,6 +212,7 @@ def run():
     with tf.Session() as sess:
         # Path to vgg model
         vgg_path = os.path.join(data_dir, 'vgg')
+
         # Create function to get batches
         get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'), image_shape)
 
@@ -222,7 +224,6 @@ def run():
                               vgg_layer4_out=vgg_layer4_out_tensor,
                               vgg_layer7_out=vgg_layer7_out_tensor,
                               num_classes=num_classes)
-
 
         learning_rate = tf.placeholder(dtype=tf.float32)
         correct_label = tf.placeholder(dtype=tf.float32, shape=(None, None, None, num_classes))
@@ -243,9 +244,8 @@ def run():
                             learning_rate=learning_rate,
                             batches_count=n_batches)
 
-        merged = tf.summary.merge_all()
-        summary_writer = tf.summary.FileWriter(logdir=log_dir, graph=tf.get_default_graph())
-
+        tf.summary.merge_all()
+        tf.summary.FileWriter(logdir=log_dir, graph=tf.get_default_graph())
 
         # DONE: Save inference data using helper.save_inference_samples
         helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, vgg_keep_prob_tensor,
