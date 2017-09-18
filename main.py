@@ -8,7 +8,7 @@ from distutils.version import LooseVersion
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from tqdm import tqdm
-
+import scipy
 # Check TensorFlow Version
 assert LooseVersion(tf.__version__) >= LooseVersion(
     '1.0'), 'Please use TensorFlow version 1.0 or newer.  You are using {}'.format(tf.__version__)
@@ -29,10 +29,10 @@ def upsample_layer(bottom,
     # strides = [1, stride, stride, 1]
     with tf.variable_scope(name):
         # Shape of the bottom tensor
-        in_shape = tf.shape(bottom)
+        # in_shape = tf.shape(bottom)
 
-        h = ((in_shape[1] - 1) * stride) + 1
-        w = ((in_shape[2] - 1) * stride) + 1
+        # h = ((in_shape[1] - 1) * stride) + 1
+        # w = ((in_shape[2] - 1) * stride) + 1
         # new_shape = [in_shape[0], h, w, n_channels]
         # output_shape = tf.stack(new_shape)
 
@@ -102,17 +102,38 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :return: The Tensor for the last layer of output
     """
     # DONE: Implement function
+
+    """vgg_layer7_out = tf.Print(vgg_layer7_out, [tf.shape(vgg_layer7_out)], message= "Shape of vgg_layer7_out:", summarize=10, first_n=1)
+    vgg_layer4_out = tf.Print(vgg_layer4_out, [tf.shape(vgg_layer4_out)], message="Shape of vgg_layer4_out_out:",
+                              summarize=10, first_n=1)
+    vgg_layer3_out = tf.Print(vgg_layer3_out, [tf.shape(vgg_layer3_out)], message="Shape of vgg_layer3_out:",
+                              summarize=10, first_n=1)"""
+
     layer7_1x1 = conv_1x1(vgg_layer7_out, num_classes)
+    # layer7_1x1 = tf.Print(layer7_1x1, [tf.shape(layer7_1x1)], message= "Shape of layer7_1x1:", summarize=10, first_n=1)
+
     layer7_upsampled = upsample_layer(layer7_1x1, num_classes, "layer7_upsampled", 2)
+    # layer7_upsampled = tf.Print(layer7_upsampled, [tf.shape(layer7_upsampled)], message= "Shape of layer7_upsampled:", summarize=10, first_n=1)
+
     layer4_1x1 = conv_1x1(vgg_layer4_out, num_classes)
+    # layer4_1x1 = tf.Print(layer4_1x1, [tf.shape(layer4_1x1)], message= "Shape of layer4_1x1:", summarize=10, first_n=1)
+
     layer4_7_fused = tf.add(layer4_1x1, layer7_upsampled)
+    # layer4_7_fused = tf.Print(layer4_7_fused, [tf.shape(layer4_7_fused)], message= "Shape of layer4_7_fused:", summarize=10, first_n=1)
+
     layer4_7_upsampled = upsample_layer(layer4_7_fused, num_classes, "layer4_7_upsampled", 2)
+    # layer4_7_upsampled = tf.Print(layer4_7_upsampled, [tf.shape(layer4_7_upsampled)], message= "Shape of layer4_7_upsampled:", summarize=10, first_n=1)
+
     layer3_1x1 = conv_1x1(vgg_layer3_out, num_classes)
+    # layer3_1x1 = tf.Print(layer3_1x1, [tf.shape(layer3_1x1)], message= "Shape of layer3_1x1:", summarize=10, first_n=1)
+
     layer3_4_7_fused = tf.add(layer3_1x1, layer4_7_upsampled)
+    # layer3_4_7_fused = tf.Print(layer3_4_7_fused, [tf.shape(layer3_4_7_fused)], message= "Shape of layer3_4_7_fused:", summarize=10, first_n=1)
+
     layer3_4_7_upsampled = upsample_layer(layer3_4_7_fused, num_classes, "layer3_4_7_upsampled", 8)
+    # layer3_4_7_upsampled = tf.Print(layer3_4_7_upsampled, [tf.shape(layer3_4_7_upsampled)], message= "Shape of layer3_4_7_upsampled:", summarize=10, first_n=1)
 
     return layer3_4_7_upsampled
-
 
 # tests.test_layers(layers)
 
@@ -178,10 +199,11 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
 def run():
     num_classes = 2
     image_shape = (160, 576)
-    epochs = 12
+    epochs = 2
     batch_size = 2
     data_dir = './data'
     runs_dir = './runs'
+    log_dir = './tensorboard'
 
     # Download pre-trained vgg model
     helper.maybe_download_pretrained_vgg(data_dir)
@@ -201,6 +223,7 @@ def run():
                               vgg_layer7_out=vgg_layer7_out_tensor,
                               num_classes=num_classes)
 
+
         learning_rate = tf.placeholder(dtype=tf.float32)
         correct_label = tf.placeholder(dtype=tf.float32, shape=(None, None, None, num_classes))
         logits, train_op, loss = optimize(output_layer, correct_label, learning_rate, num_classes)
@@ -219,6 +242,10 @@ def run():
                             keep_prob=vgg_keep_prob_tensor,
                             learning_rate=learning_rate,
                             batches_count=n_batches)
+
+        merged = tf.summary.merge_all()
+        summary_writer = tf.summary.FileWriter(logdir=log_dir, graph=tf.get_default_graph())
+
 
         # DONE: Save inference data using helper.save_inference_samples
         helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, vgg_keep_prob_tensor,
