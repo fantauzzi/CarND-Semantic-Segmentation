@@ -23,21 +23,16 @@ else:
 
 def upsample_layer(bottom,
                    n_channels, name, upscale_factor):
-    ## Adapted from http://cv-tricks.com/image-segmentation/transpose-convolution-in-tensorflow/
+    """
+    Makes a layer for transposed convolution to up-sample a given layer.
+    :param bottom: the layer to be up-sampled.
+    :param n_channels: the dimensionality of the output space (i.e. the number of convolution filters).
+    :param name: a name for a scope to put the newly created layer into.
+    :param upscale_factor: up-scaling factor, must be a positive integer.
+    :return: a transposed convolution layer that performs the up-scaling.
+    """
     kernel_size = 2 * upscale_factor - upscale_factor % 2
-    # stride = upscale_factor
-    # strides = [1, stride, stride, 1]
     with tf.variable_scope(name):
-        # Shape of the bottom tensor
-        # in_shape = tf.shape(bottom)
-
-        # h = ((in_shape[1] - 1) * stride) + 1
-        # w = ((in_shape[2] - 1) * stride) + 1
-        # new_shape = [in_shape[0], h, w, n_channels]
-        # output_shape = tf.stack(new_shape)
-
-        # filter_shape = [kernel_size, kernel_size, n_channels, n_channels]
-
         weights = tf.truncated_normal_initializer(stddev=0.01)
         deconv = tf.layers.conv2d_transpose(inputs=bottom,
                                             filters=n_channels,
@@ -46,11 +41,16 @@ def upsample_layer(bottom,
                                             padding='same',
                                             kernel_initializer=weights,
                                             kernel_regularizer=l2_regularizer(1e-3))
-
     return deconv
 
 
 def conv_1x1(x, num_outputs):
+    """
+    Makes a layer to apply a 1-to-1 convolution.
+    :param x: the layer to be convolved.
+    :param num_outputs: the dimensionality of the output space (i.e. the number of filters in the convolution).
+    :return: a 1-to-1 convolution layer.
+    """
     return tf.layers.conv2d(inputs=x,
                             filters=num_outputs,
                             kernel_size=1,
@@ -102,6 +102,8 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :return: The Tensor for the last layer of output
     """
     # DONE: Implement function
+
+    # The needful to print tensor shapes is commented out in this function
 
     """vgg_layer7_out = tf.Print(vgg_layer7_out, [tf.shape(vgg_layer7_out)], message= "Shape of vgg_layer7_out:", summarize=10, first_n=1)
     vgg_layer4_out = tf.Print(vgg_layer4_out, [tf.shape(vgg_layer4_out)], message="Shape of vgg_layer4_out_out:",
